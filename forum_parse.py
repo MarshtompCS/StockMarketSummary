@@ -7,6 +7,8 @@ import re
 import pickle
 import os
 import datetime
+import time
+from tqdm import tqdm
 
 # 爬取帖子来源：理想论坛 > 实战交流 > 看盘
 # 帖子将作为点评文本生成模型的粗粒度预训练语料
@@ -14,6 +16,9 @@ import datetime
 BASE_URL = "https://www.55188.com/"
 POSTS_DIR = "./posts_data"
 RAW_POSTS_DIR = "./posts_raw_data"
+MAX_POST_PER_DAY = 100
+TOTAL_NUM = 0
+POST_PER_DAY_DICT = {}
 
 
 def create_dir_env():
@@ -48,9 +53,9 @@ def filter_this_post(post_title):
     return True
 
 
-def save_post(post_info: Dict, save_raw_data=True):
+def save_post(post_info: Dict, raw_data, save_raw_data=True):
     save_name = f'{post_info["time"].strftime("%Y-%m-%d")}_{post_info["title"][:10]}_{post_info["id"]}'
-    save_path = os.path.join(POSTS_DIR, save_name, "json")
+    save_path = os.path.join(POSTS_DIR, save_name + ".json")
     save_content = {
         "id": post_info["id"],
         "title": post_info["title"],
@@ -61,28 +66,51 @@ def save_post(post_info: Dict, save_raw_data=True):
     json.dump(save_content, open(save_path, "w", encoding="utf-8"), ensure_ascii=False, indent=4)
 
     if save_raw_data:
-        raw_data = post_info["post_nodes"]
-        raw_data_path = os.path.join(RAW_POSTS_DIR, save_name, "pkl")
+        raw_data_path = os.path.join(RAW_POSTS_DIR, save_name + ".pkl")
         pickle.dump(raw_data, open(raw_data_path, 'wb'))
 
 
-def parse_post_list(post_list_url=None):
+def parse_post_list(post_list_url=None, previous_ids=[]):
+    global TOTAL_NUM
     if post_list_url is None:
         post_list_html = pickle.load(open("./test_html/post_list.html", 'rb'))  # For debug
     else:
         post_list_html = requests.get(post_list_url)
+        post_list_html = post_list_html.text
     soup = BeautifulSoup(post_list_html, "lxml")
 
     post_list = soup.select("#threadlisttableid > article")
 
     parsed_posts = []
+    tmp_bar = tqdm(total=(len(post_list)), leave=True)
     for post in post_list:
+        tmp_bar.update(1)
+        post_time = post.find("div", "cell2").find("time").text
+        hour = int(post_time[-5:-3])
+        if hour < 14:
+            continue
+            # too early
         post_cell = post.find("div", "cell1").find("a", "subject")
         post_url = BASE_URL + post_cell["href"]
         post_title = post_cell["title"]
-
         if not filter_this_post(post_title):
+            time.sleep(1)
             parsed_post = parse_post(post_url)
+            if parsed_post['id'] in previous_ids:
+                continue
+                # skip the saved ids
+            year_month_day = parsed_post["time"].strftime("%Y-%m-%d")
+            if year_month_day not in POST_PER_DAY_DICT.keys():
+                POST_PER_DAY_DICT[year_month_day] = 1
+                TOTAL_NUM += 1
+            else:
+                if POST_PER_DAY_DICT[year_month_day] >= MAX_POST_PER_DAY:
+                    continue
+                    # save max num
+                else:
+                    POST_PER_DAY_DICT[year_month_day] += 1
+                    TOTAL_NUM += 1
+            save_post(parsed_post, post_list_html)
             parsed_posts.append(parsed_post)
 
     return parsed_posts
@@ -93,6 +121,7 @@ def parse_post(post_url=None) -> Dict:
         post_html = pickle.load(open("./test_html/post.html", 'rb'))  # For debug
     else:
         post_html = requests.get(post_url)
+        post_html = post_html.text
     soup = BeautifulSoup(post_html, "lxml")
 
     # Select post-list, where the first post is the main post, and the rest posts are replies.
@@ -100,7 +129,9 @@ def parse_post(post_url=None) -> Dict:
     posts = soup.select("#postlist > div")
     main_post = posts[0]
     post_id = main_post["id"]
+    post_id = post_id.split('_')[-1]
     post_title = main_post.header.h2.text.strip()
+    post_title = post_title.replace('/', '')
     post_time_text = main_post.find("span", "z ml_10").text
     post_time_text = post_time_text.replace("发表于", "").strip()
     post_time = datetime.datetime.strptime(post_time_text, "%Y-%m-%d %H:%M")
@@ -118,7 +149,7 @@ def build_text_post_from_nodes(post_nodes):
         assert type(node) in [bs4.element.Tag, bs4.element.NavigableString, bs4.element.Comment]
         if type(node) == bs4.element.Tag:
             if node.name == "br":
-                if text_post[-1] != "\n":
+                if len(text_post) > 0 and text_post[-1] != "\n":
                     text_post += "\n"
         elif type(node) == bs4.element.Comment:
             continue
@@ -138,14 +169,42 @@ def main():
     # 2. set several ``parse_list_url`` and parse posts
     # 3. check the parsed posts whether had saved previous
     # 4. save the new parsed posts
+    global TOTAL_NUM
+    previous_files = os.listdir(POSTS_DIR)
+    previous_ids = []
+    for file in previous_files:
+        id = file.split('_')[-1].split('.')[0]
+        previous_ids.append(id)
+        year_month_day = file.split('_')[0]
+        if year_month_day not in POST_PER_DAY_DICT.keys():
+            POST_PER_DAY_DICT[year_month_day] = 1
+            TOTAL_NUM += 1
+        else:
+            if POST_PER_DAY_DICT[year_month_day] >= MAX_POST_PER_DAY:
+                continue
+            else:
+                POST_PER_DAY_DICT[year_month_day] += 1
+                TOTAL_NUM += 1
 
+    pbar = tqdm(total=100)
+    parse_list_url = BASE_URL + 'forum-8-t2.html'
+    parsed_posts = parse_post_list(post_list_url=parse_list_url, previous_ids=previous_ids)
+    pbar.set_description('TOTAL %d' % TOTAL_NUM)
+    pbar.update(1)
+
+    for i in range(2, 100):
+        parse_list_url = BASE_URL + 'forum-8-t2-' + str(i) + '.html'
+        parsed_posts = parse_post_list(post_list_url=parse_list_url, previous_ids=previous_ids)
+        pbar.set_description('TOTAL %d' % TOTAL_NUM)
+        pbar.update(1)
+    print(POST_PER_DAY_DICT)
     # it is better to ensure the collected posts equally distributed by day.
     pass
 
 
 if __name__ == '__main__':
-    create_dir_env()
-    create_test_html_for_debug()
+    # create_dir_env()
+    # create_test_html_for_debug()
     # parse_post()
     # parse_post_list()
     main()
