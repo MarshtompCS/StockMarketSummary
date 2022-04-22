@@ -6,9 +6,9 @@ import requests
 import re
 import pickle
 import os
-import datetime
 import time
 from tqdm import tqdm
+from datetime import timedelta, datetime
 
 # 爬取帖子来源：理想论坛 > 实战交流 > 看盘
 # 帖子将作为点评文本生成模型的粗粒度预训练语料
@@ -17,8 +17,7 @@ BASE_URL = "https://www.55188.com/"
 POSTS_DIR = "./posts_data"
 RAW_POSTS_DIR = "./posts_raw_data"
 MAX_POST_PER_DAY = 100
-TOTAL_NUM = 0
-POST_PER_DAY_DICT = {}
+MAX_PAGE_PER_DAY = 50
 
 
 def create_dir_env():
@@ -70,8 +69,7 @@ def save_post(post_info: Dict, raw_data, save_raw_data=True):
         pickle.dump(raw_data, open(raw_data_path, 'wb'))
 
 
-def parse_post_list(post_list_url=None, previous_ids=None):
-    global TOTAL_NUM
+def parse_post_list(require_day, post_list_url, previous_ids, total_posts, post_per_day):
     if post_list_url is None:
         post_list_html = pickle.load(open("./test_html/post_list.html", 'rb'))  # For debug
     else:
@@ -82,6 +80,7 @@ def parse_post_list(post_list_url=None, previous_ids=None):
     post_list = soup.select("#threadlisttableid > article")
 
     parsed_posts = []
+    post_htmls = []
     tmp_bar = tqdm(total=(len(post_list)), leave=True)
     for post in post_list:
         tmp_bar.update(1)
@@ -100,20 +99,23 @@ def parse_post_list(post_list_url=None, previous_ids=None):
                 continue
                 # skip the saved ids
             year_month_day = parsed_post["time"].strftime("%Y-%m-%d")
-            if year_month_day not in POST_PER_DAY_DICT.keys():
-                POST_PER_DAY_DICT[year_month_day] = 1
-                TOTAL_NUM += 1
+            if year_month_day != require_day:
+                continue
             else:
-                if POST_PER_DAY_DICT[year_month_day] >= MAX_POST_PER_DAY:
-                    continue
-                    # save max num
+                if year_month_day not in post_per_day.keys():
+                    post_per_day[year_month_day] = 1
+                    total_posts += 1
                 else:
-                    POST_PER_DAY_DICT[year_month_day] += 1
-                    TOTAL_NUM += 1
-            save_post(parsed_post, post_list_html)
+                    if post_per_day[year_month_day] >= MAX_POST_PER_DAY:
+                        break
+                        # save max num
+                    else:
+                        post_per_day[year_month_day] += 1
+                        total_posts += 1
+            # save_post(parsed_post, post_list_html)
             parsed_posts.append(parsed_post)
-
-    return parsed_posts
+            post_htmls.append(post_list_html)
+    return parsed_posts, post_htmls, total_posts, post_per_day
 
 
 def parse_post(post_url=None) -> Dict:
@@ -134,7 +136,7 @@ def parse_post(post_url=None) -> Dict:
     post_title = post_title.replace('/', '')
     post_time_text = main_post.find("span", "z ml_10").text
     post_time_text = post_time_text.replace("发表于", "").strip()
-    post_time = datetime.datetime.strptime(post_time_text, "%Y-%m-%d %H:%M")
+    post_time = datetime.strptime(post_time_text, "%Y-%m-%d %H:%M")
 
     post_nodes = main_post.find("div", "nei")
     text_post = build_text_post_from_nodes(post_nodes)
@@ -169,36 +171,52 @@ def main():
     # 2. set several ``parse_list_url`` and parse posts
     # 3. check the parsed posts whether had saved previous
     # 4. save the new parsed posts
-    global TOTAL_NUM
+    total_posts = 0
+    post_per_day = {}
     previous_files = os.listdir(POSTS_DIR)
     previous_ids = []
     for file in previous_files:
         id = file.split('_')[-1].split('.')[0]
         previous_ids.append(id)
         year_month_day = file.split('_')[0]
-        if year_month_day not in POST_PER_DAY_DICT.keys():
-            POST_PER_DAY_DICT[year_month_day] = 1
-            TOTAL_NUM += 1
+        if year_month_day not in post_per_day.keys():
+            post_per_day[year_month_day] = 1
+            total_posts += 1
         else:
-            if POST_PER_DAY_DICT[year_month_day] >= MAX_POST_PER_DAY:
+            if post_per_day[year_month_day] >= MAX_POST_PER_DAY:
                 continue
             else:
-                POST_PER_DAY_DICT[year_month_day] += 1
-                TOTAL_NUM += 1
+                post_per_day[year_month_day] += 1
+                total_posts += 1
 
-    pbar = tqdm(total=1400 - 930)
-    # parse_list_url = BASE_URL + 'forum-8-t2.html'
-    # parsed_posts = parse_post_list(post_list_url=parse_list_url, previous_ids=previous_ids)
-    # pbar.set_description('TOTAL %d' % TOTAL_NUM)
-    # pbar.update(1)
-    print(POST_PER_DAY_DICT)
-    for i in range(930, 1400):
+    yesterday = datetime.today() + timedelta(-1)
+    yesterday_format = yesterday.strftime('%Y-%m-%d')
+    pbar = tqdm(total=MAX_PAGE_PER_DAY)
+    parse_list_url = BASE_URL + 'forum-8-t2.html'
+    parsed_posts, post_htmls, total_posts, post_per_day = parse_post_list(require_day=yesterday_format,
+                                                                          post_list_url=parse_list_url,
+                                                                          previous_ids=previous_ids,
+                                                                          total_posts=total_posts,
+                                                                          post_per_day=post_per_day)
+    pbar.set_description('TOTAL %d' % total_posts)
+    pbar.update(1)
+    for j in range(len(parsed_posts)):
+        save_post(parsed_posts[j], post_htmls[j])
+    print(yesterday_format, ":", post_per_day[yesterday_format])
+    for i in range(2, MAX_PAGE_PER_DAY):
         parse_list_url = BASE_URL + 'forum-8-t2-' + str(i) + '.html'
-        parsed_posts = parse_post_list(post_list_url=parse_list_url, previous_ids=previous_ids)
-        pbar.set_description('TOTAL %d' % TOTAL_NUM)
+        parsed_posts, post_htmls, total_posts, post_per_day = parse_post_list(require_day=yesterday_format,
+                                                                              post_list_url=parse_list_url,
+                                                                              previous_ids=previous_ids,
+                                                                              total_posts=total_posts,
+                                                                              post_per_day=post_per_day)
+        for j in range(len(parsed_posts)):
+            save_post(parsed_posts[j], post_htmls[j])
+        pbar.set_description('TOTAL %d' % total_posts)
         pbar.update(1)
-    print(POST_PER_DAY_DICT)
-    # it is better to ensure the collected posts equally distributed by day.
+        print(yesterday_format, ":", post_per_day[yesterday_format])
+    print(yesterday_format, ":", post_per_day[yesterday_format])
+
     pass
 
 
