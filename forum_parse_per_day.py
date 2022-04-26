@@ -1,4 +1,5 @@
 import json
+import unicodedata
 from typing import Dict
 import bs4
 from bs4 import BeautifulSoup
@@ -151,12 +152,14 @@ def build_text_post_from_nodes(post_nodes):
         assert type(node) in [bs4.element.Tag, bs4.element.NavigableString, bs4.element.Comment]
         if type(node) == bs4.element.Tag:
             if node.name == "br":
-                if len(text_post) > 0 and text_post[-1] != "\n":
-                    text_post += "\n"
+                if len(text_post) > 0 and not unicodedata.category(text_post[-1]).startswith("P"):
+                    # replace \n by 。 if the previous one is not a punctuation
+                    text_post += "。"
         elif type(node) == bs4.element.Comment:
             continue
         else:
-            text_post += node.strip()
+            node = node.strip().replace(" ", "")  # remove blanks
+            text_post += node
 
     # Clean text_post by following rules:
     # 1. one char repeats more than 6 times will be truncated.

@@ -1,4 +1,5 @@
 import json
+import unicodedata
 from typing import Dict
 import bs4
 from bs4 import BeautifulSoup
@@ -9,13 +10,15 @@ import os
 import datetime
 import time
 from tqdm import tqdm
+from unicodedata import category
+import sys
 
 # 爬取帖子来源：理想论坛 > 实战交流 > 看盘
 # 帖子将作为点评文本生成模型的粗粒度预训练语料
 
 BASE_URL = "https://www.55188.com/"
-POSTS_DIR = "./posts_data"
-RAW_POSTS_DIR = "./posts_raw_data"
+POSTS_DIR = "./data/posts_data"
+RAW_POSTS_DIR = "./data/posts_raw_data"
 MAX_POST_PER_DAY = 100
 TOTAL_NUM = 0
 POST_PER_DAY_DICT = {}
@@ -149,12 +152,14 @@ def build_text_post_from_nodes(post_nodes):
         assert type(node) in [bs4.element.Tag, bs4.element.NavigableString, bs4.element.Comment]
         if type(node) == bs4.element.Tag:
             if node.name == "br":
-                if len(text_post) > 0 and text_post[-1] != "\n":
-                    text_post += "\n"
+                if len(text_post) > 0 and not unicodedata.category(text_post[-1]).startswith("P"):
+                    # replace \n by 。 if the previous one is not a punctuation
+                    text_post += "。"
         elif type(node) == bs4.element.Comment:
             continue
         else:
-            text_post += node.strip()
+            node = node.strip().replace(" ", "")  # remove blanks
+            text_post += node
 
     # Clean text_post by following rules:
     # 1. one char repeats more than 6 times will be truncated.
