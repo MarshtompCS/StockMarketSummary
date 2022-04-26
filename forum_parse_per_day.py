@@ -189,7 +189,7 @@ def main():
                 post_per_day[year_month_day] += 1
                 total_posts += 1
 
-    yesterday = datetime.today() + timedelta(-1)
+    yesterday = datetime.today() + timedelta(-2)
     yesterday_format = yesterday.strftime('%Y-%m-%d')
     pbar = tqdm(total=MAX_PAGE_PER_DAY)
     parse_list_url = BASE_URL + 'forum-8-t2.html'
@@ -215,6 +215,8 @@ def main():
         pbar.set_description('TOTAL %d' % total_posts)
         pbar.update(1)
         print(yesterday_format, ":", post_per_day[yesterday_format])
+        if post_per_day[yesterday_format] >= MAX_POST_PER_DAY:
+            break
     print(yesterday_format, ":", post_per_day[yesterday_format])
 
     pass
