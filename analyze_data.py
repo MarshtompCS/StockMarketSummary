@@ -12,7 +12,7 @@ from tqdm import tqdm
 from typing import List
 import tushare
 
-POSTS_DIR = "./data/posts_data"
+POSTS_DIR = "./posts_data"
 
 """
 一、预训练语料
@@ -122,8 +122,9 @@ def main():
         id = file.split('_')[-1].split('.')[0]
         previous_ids.append(id)
         year_month_day = file.split('_')[0]
+        post=get_post_by_name(file)
 
 
 if __name__ == '__main__':
-    get_post_by_name("2022-04-06_4.5复盘_161479794.json")
-    # main()
+    # get_post_by_name("2022-04-06_4.5复盘_161479794.json")
+    main()
