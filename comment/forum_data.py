@@ -3,21 +3,13 @@ import pickle
 import os
 from tqdm import tqdm
 import logging
-from typing import Dict
-import requests
-from bs4 import BeautifulSoup
-import bs4
-import unicodedata
-import re
-from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
-import random
 import seaborn as sns
 from collections import Counter
 import matplotlib as mpl
 
 # snssns.set()
-from tushare_utils import get_stock_basic, get_industry_basic
+from comment.tushare_utils import get_stock_basic, get_industry_basic
 
 if not os.path.exists("./data"):
     os.chdir("../")
@@ -37,7 +29,8 @@ mpl.rcParams["font.sans-serif"] = ["Calibri"]
 plt.grid(True)
 
 
-def draw_1dim_distribution(x, save_name):
+def draw_1dim_distribution(save_name):
+    x = pickle.load(open(f"./pictures/{save_name}.pkl", 'rb'))
     y = []
     for i in range(len(x)):
         y.append(0)
@@ -46,12 +39,31 @@ def draw_1dim_distribution(x, save_name):
     # plt.ylim(-1, 1)
     sns.displot(x)  # 左图
     # sns.distplot(x, hist=False)  # 中图
-    plt.savefig(f'{save_name}.pdf')
+    plt.savefig(f'./pictures/{save_name}.pdf')
 
 
-def draw_line():
-    stock_entity_num = pickle.load(open("./pictures/stock_entity_num.pkl", 'rb'))
-    industry_entity_num = pickle.load(open("./pictures/industry_entity_num.pkl", 'rb'))
+def draw_entity_line(save_name):
+    # stock_entity_num = pickle.load(open("./pictures/stock_entity_num_split500.pkl", 'rb'))
+    # industry_entity_num = pickle.load(open("./pictures/industry_entity_num.pkl", 'rb'))
+    target_entity_num = pickle.load(open(f"./pictures/{save_name}.pkl", 'rb'))
+    a = Counter(target_entity_num)
+    s = sorted(a.items(), key=lambda x: x[0])
+    cur_nums = 0
+    x = []
+    y = []
+    for entity_num, post_num in s:
+        x.append(entity_num)
+        cur_nums += post_num
+        y.append(cur_nums)
+    y = [i / y[-1] for i in y]
+    y = [i for i in y if i < 0.993]
+    x = x[:len(y)]
+    plt.plot(x, y, marker="o", label=f"accumulative {save_name}")
+    plt.savefig(f"./pictures/accumulative {save_name}.pdf")
+
+
+def draw_text_length(save_name="text_post_lengths"):
+    industry_entity_num = pickle.load(open(f"./pictures/{save_name}.pkl", 'rb'))
     a = Counter(industry_entity_num)
     s = sorted(a.items(), key=lambda x: x[0])
     cur_nums = 0
@@ -62,8 +74,8 @@ def draw_line():
         cur_nums += post_num
         y.append(cur_nums)
     y = [i / y[-1] for i in y]
-    plt.plot(x, y, marker="o", label="accumulative industry-entity num")
-    plt.savefig("./pictures/accumulative_industry_entity_num.pdf")
+    plt.plot(x, y, marker="o", label="accumulative text_post_lengths")
+    plt.savefig(f"./pictures/{save_name}.pdf")
 
 
 def extract_marked_entities(post, stock_list, industry_list):
@@ -102,42 +114,105 @@ def ana1():
     posts_data = []
     previous_files = os.listdir(POSTS_DIR)
     cnt = 0
-    dstr = "免责声明：本号本人不荐股，文章内容属于个人操作心得的分享，仅供交流和学之用，个人的分析观点不可能完全正确，请保持理性和有选择性的参考文章，文中所有内容任何时候都不构成任何投资建议！据此买卖风险自理！"
     cpercent = []
     stock_entity_num = []
     industry_entity_num = []
+    text_lengths = []
+
+    max_length = 500
+
     for filename in tqdm(previous_files):
         filepath = os.path.join(POSTS_DIR, filename)
         cur_post = json.load(open(filepath, 'r', encoding='utf-8'))
         # cur_post = pickle.load(open(filepath, 'rb'))
 
-        if len(cur_post["text_post"]) == 0:
-            continue
+        # if len(cur_post["text_post"]) < 64 or len(cur_post["text_post"]) > 2048:
+        #     continue
+        #
+        # if int(cur_post["time"][:4]) <= 2019:
+        #     continue
+        #
+        # cur_post["text_post"] = cur_post["text_post"][:max_length]
+        #
+        # text_lengths.append(len(cur_post["text_post"]))
+        #
+        # # add entities
+        # res = extract_marked_entities(cur_post["text_post"], stock_list, industry_list)
+        # stock_entity_num.append(len(res['stock_entity']))
+        # industry_entity_num.append(len(res['industry_entity']))
+        #
+        # cur_post["stock_entity"] = res["stock_entity"]
+        # cur_post["industry_entity"] = res["industry_entity"]
+        #
+        # cur_post["stock_entity_num"] = len(res["stock_entity"])
+        # cur_post["industry_entity_num"] = len(res["industry_entity"])
+        #
+        # # add chinese percentage
+        # cp = chinese_percentage(cur_post["text_post"])
+        # cpercent.append(cp)
+        # cur_post["chinese_char_percentage"] = cp
 
         posts_data.append(cur_post)
 
-        res = extract_marked_entities(cur_post["text_post"], stock_list, industry_list)
-        stock_entity_num.append(len(res['stock_entity']))
-        industry_entity_num.append(len(res['industry_entity']))
-        # print("-" * 100)
-        # print(cur_post)
-        # print(f"{' '.join(res['stock_entity'])}")
-        # print(f"{' '.join(res['industry_entity'])}")
-        # print("-" * 100)
-
-        cp = chinese_percentage(cur_post["text_post"])
-        cpercent.append(cp)
-        # if dstr in cur_post["text_post"]:
-        #     cnt += 1
     print(cnt)
     print(f"posts num: {len(posts_data)}")
-    draw_1dim_distribution(cpercent, "chinese_char_percent")
-    draw_1dim_distribution(stock_entity_num, "stock_entity_num")
-    draw_1dim_distribution(industry_entity_num, "industry_entity_num")
+    # pickle.dump(text_lengths, open("./pictures/text_post_lengths.pkl", "wb"))
+    # draw_text_length()
 
-    pickle.dump(cpercent, open("chinese_char_percent.pkl", 'wb'))
-    pickle.dump(stock_entity_num, open("stock_entity_num.pkl", 'wb'))
-    pickle.dump(industry_entity_num, open("industry_entity_num.pkl", 'wb'))
+    # pickle.dump(cpercent, open("./pictures/chinese_char_percent_split500.pkl", 'wb'))
+    # draw_1dim_distribution("chinese_char_percent_split500")
+    # draw_1dim_distribution(stock_entity_num, "stock_entity_num")
+    # draw_1dim_distribution(industry_entity_num, "industry_entity_num")
+    # pickle.dump(stock_entity_num, open("./pictures/stock_entity_num_split500.pkl", 'wb'))
+    # pickle.dump(industry_entity_num, open("./pictures/industry_entity_num_split500.pkl", 'wb'))
+    #
+    # draw_entity_line("stock_entity_num_split500")
+    # draw_entity_line("industry_entity_num_split500")
+
+    pickle.dump(posts_data, open("./0512_post_data_split500.pkl", 'wb'))
+
+
+def draw():
+    # draw_entity_line("stock_entity_num_split500")
+
+    target_entity_num = pickle.load(open(f"./pictures/stock_entity_num_split500.pkl", 'rb'))
+    a = Counter(target_entity_num)
+    s = sorted(a.items(), key=lambda x: x[0])
+    cur_nums = 0
+    x = []
+    y = []
+    for entity_num, post_num in s:
+        x.append(entity_num)
+        cur_nums += post_num
+        y.append(cur_nums)
+    y = [i / y[-1] for i in y]
+    y = [i for i in y if i < 0.993]
+    x = x[:len(y)]
+    len_y = len(y)
+
+    plt.plot(x, y, marker="o", label=f"accumulative stock entity")
+
+    target_entity_num = pickle.load(open(f"./pictures/industry_entity_num_split500.pkl", 'rb'))
+    a = Counter(target_entity_num)
+    s = sorted(a.items(), key=lambda x: x[0])
+    cur_nums = 0
+    x = []
+    y = []
+    for entity_num, post_num in s:
+        x.append(entity_num)
+        cur_nums += post_num
+        y.append(cur_nums)
+    y = [i / y[-1] for i in y]
+    y = y[:len_y]
+    x = x[:len_y]
+
+    plt.plot(x, y, marker="o", label=f"accumulative industry entity")
+
+    plt.legend(['accumulative stock entity', 'accumulative industry entity'])
+
+    plt.savefig(f"./pictures/accumulative stock and industry split500.pdf")
+
+    # draw_entity_line("industry_entity_num_split500")
 
 
 def process1():
@@ -145,27 +220,28 @@ def process1():
     industry_basic = get_industry_basic()
     stock_list = set(stock_basic.name)
     industry_list = set(industry_basic.name)
-    if not os.path.exists("./tmp/all_processed_data.pkl"):
-        posts_data = []
-        previous_files = os.listdir(POSTS_DIR)
-        for filename in tqdm(previous_files):
-            filepath = os.path.join(POSTS_DIR, filename)
-            cur_post = json.load(open(filepath, 'r', encoding='utf-8'))
-            # cur_post = pickle.load(open(filepath, 'rb'))
-
-            if len(cur_post["text_post"]) == 0:
-                continue
-
-            res = extract_marked_entities(cur_post["text_post"], stock_list, industry_list)
-            # len(res['stock_entity'])
-            # len(res['industry_entity'])
-            cur_post.update(res)
-            cp = chinese_percentage(cur_post["text_post"])
-            cur_post["chinese_char_percentage"] = cp
-            posts_data.append(cur_post)
-        pickle.dump(posts_data, open("./tmp/all_processed_data.pkl", 'wb'))
-    else:
-        posts_data = pickle.load(open("./tmp/all_processed_data.pkl", 'rb'))
+    # if not os.path.exists("./tmp/all_processed_data.pkl"):
+    #     posts_data = []
+    #     previous_files = os.listdir(POSTS_DIR)
+    #     for filename in tqdm(previous_files):
+    #         filepath = os.path.join(POSTS_DIR, filename)
+    #         cur_post = json.load(open(filepath, 'r', encoding='utf-8'))
+    #         # cur_post = pickle.load(open(filepath, 'rb'))
+    #
+    #         if len(cur_post["text_post"]) == 0:
+    #             continue
+    #
+    #         res = extract_marked_entities(cur_post["text_post"], stock_list, industry_list)
+    #         # len(res['stock_entity'])
+    #         # len(res['industry_entity'])
+    #         cur_post.update(res)
+    #         cp = chinese_percentage(cur_post["text_post"])
+    #         cur_post["chinese_char_percentage"] = cp
+    #         posts_data.append(cur_post)
+    #     pickle.dump(posts_data, open("./tmp/all_processed_data.pkl", 'wb'))
+    # else:
+    #     posts_data = pickle.load(open("./tmp/all_processed_data.pkl", 'rb'))
+    posts_data = pickle.load(open("./0512_post_data_split500.pkl", 'rb'))
 
     filtered_post = []
     ccp_fil_n = 0
@@ -192,22 +268,36 @@ def process1():
         if flag:
             filtered_post.append(post)
 
-    print(f"filtered_post num: {len(filtered_post)}, {len(filtered_post) / len(posts_data):.5f} \n"
+    print(f"after filtering num: {len(filtered_post)}, save percent: {len(filtered_post) / len(posts_data):.5f} \n"
           f"ccp_fil_n: {ccp_fil_n}, {ccp_fil_n / len(posts_data) :.5f} \n"
           f"sen_fil_n: {sen_fil_n}, {sen_fil_n / len(posts_data) :.5f} \n"
           f"ien_fil_n: {ien_fil_n}, {ien_fil_n / len(posts_data) :.5f} \n")
 
-    pickle.dump(filtered_post, open("./0505_filtered_posts.pkl", 'wb'))
+    # pickle.dump(filtered_post, open("./0505_filtered_posts.pkl", 'wb'))
+    pickle.dump(filtered_post, open("./0512_filtered_posts.pkl", 'wb'))
 
 
 def process2():
     posts_data = pickle.load(open("./0505_filtered_posts.pkl", 'rb'))
+    text_lengths = []
+    for cur_post in posts_data:
+        if len(cur_post["text_post"]) <= 1022:
+            text_lengths.append(len(cur_post["text_post"]))
+        # print("--" * 100)
+        # print(i)
+        # print("--" * 100)
 
-    for i in posts_data:
-        print("--"*100)
-        print(i)
-        print("--"*100)
+    # len_name = "text_post_lengths_0505_filtered"
+    # pickle.dump(text_lengths, open(f"./pictures/{len_name}.pkl", "wb"))
+    # draw_text_length(len_name)
+    len_name = "text_post_lengths_0505_filtered_split"
+    pickle.dump(text_lengths, open(f"./pictures/{len_name}.pkl", "wb"))
+    draw_text_length(len_name)
 
 
 if __name__ == '__main__':
-    process2()
+    ana1()
+    process1()
+
+    # process2()
+    # draw()

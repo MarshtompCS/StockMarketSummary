@@ -9,8 +9,11 @@ import time
 import numpy as np
 
 # ts.set_token("f90439faa983eb0cf67b6d97f89b77aa773")
-# ts.set_token("8e87184d68ee4afdc1f68d1ab4b3e21db0679ea49ac8def3baf336fe")
+ts.set_token("8e87184d68ee4afdc1f68d1ab4b3e21db0679ea49ac8def3baf336fe")
 ts_api = ts.pro_api()
+
+if not os.path.exists("./data"):
+    os.chdir("../")
 
 
 def get_trade_day(rewrite=False):
@@ -24,7 +27,7 @@ def get_trade_day(rewrite=False):
     return data
 
 
-def get_market_day(rewrite=False, date=time.strftime("%Y%m%d")):
+def get_market_day(rewrite=False, date=None, market_data=None):
     # ts_code	str	Y	指数代码
     # trade_date	str	N	交易日期 （日期格式：YYYYMMDD，下同）
     # start_date	str	N	开始日期
@@ -44,27 +47,39 @@ def get_market_day(rewrite=False, date=time.strftime("%Y%m%d")):
     # data = ts_api.index_dailybasic(trade_date='20220505')
     # 000001.SH 上证指数
     # 399001.SZ 深证成指
-
     market_data_path = "./stock_data/market_data.dict"
     if rewrite or not os.path.exists(market_data_path):
-        sh = ts_api.index_daily(ts_code='000001.SH', start_date='20190101', end_date=date)
-        sz = ts_api.index_daily(ts_code='399001.SZ', start_date='20190101', end_date=date)
-        data = {"sh": sh, "sz": sz}
+        sh = ts_api.index_daily(ts_code='000001.SH', start_date='20190101', end_date="20220511")
+        sz = ts_api.index_daily(ts_code='399001.SZ', start_date='20190101', end_date="20220511")
+        market_data = {"sh": sh, "sz": sz}
+        pickle.dump(market_data, open(market_data_path, 'wb') )
     else:
-        data = pickle.load(open(market_data_path, 'rb'))
+        if market_data is None:
+            market_data = pickle.load(open(market_data_path, 'rb'))
 
-    return data
+    sh_data = market_data["sh"].loc[market_data["sh"]["trade_date"] == date]
+    sz_data = market_data["sz"].loc[market_data["sz"]["trade_date"] == date]
+
+    return sh_data, sz_data
 
 
 def get_stock_day(stock_basic: pd.DataFrame, date, stock_name,
-                  stock_ts_code=None, rewrite=False):
+                  all_stock_table=None, stock_ts_code=None, rewrite=False):
     all_stock_dir = "./stock_data/stocks/"
     if not os.path.exists(all_stock_dir):
         os.mkdir(all_stock_dir)
 
-    stock_dir = os.path.join(all_stock_dir, stock_name)
-    if not os.path.exists(stock_dir):
-        os.mkdir(stock_dir)
+    all_stock_table_path = "./stock_data/stock_tabel.pd"
+    if rewrite or not os.path.exists(all_stock_table_path):
+        all_stock_table = ts_api.daily(start_date='20190101', end_date='20220511')
+        pickle.dump(all_stock_table, open(all_stock_table_path, 'wb'))
+    else:
+        if all_stock_table is None:
+            all_stock_table = pickle.load(open(all_stock_table_path, "rb"))
+
+    # stock_dir = os.path.join(all_stock_dir, stock_name)
+    # if not os.path.exists(stock_dir):
+    #     os.mkdir(stock_dir)
 
     # daily input
     # ts_code	str	Y	指数代码
@@ -104,32 +119,53 @@ def get_stock_day(stock_basic: pd.DataFrame, date, stock_name,
     # vol	float	Y	周成交量
     # amount	float	Y	周成交额
 
-    stock_day_data_path = os.path.join(stock_dir, f"{date}.dict")
-    if rewrite or not os.path.exists(stock_day_data_path):
-        if stock_ts_code is None:
-            stock_ts_code = stock_basic.loc[stock_basic["name"] == stock_name, "ts_code"]
-            assert len(stock_ts_code) == 1
-            stock_ts_code = stock_ts_code.item()
-        daily_data = ts_api.daily(ts_code=stock_ts_code, start_date=date, end_date=date)
-        if len(daily_data.values) != 1:
-            return len(daily_data.values)
-        # weekly_data = ts_api.weekly(ts_code=stock_ts_code, start_date=date, end_date=date)
-        # data = {"daily_data": daily_data, "weekly_data": weekly_data}
-        pickle.dump(daily_data, open(stock_day_data_path, 'wb'))
-    else:
-        daily_data = pickle.load(open(stock_day_data_path, 'rb'))
+    # stock_day_data_path = os.path.join(stock_dir, f"{date}.dict")
+    # if rewrite or not os.path.exists(stock_day_data_path):
+    #     if stock_ts_code is None:
+    #         stock_ts_code = stock_basic.loc[stock_basic["name"] == stock_name, "ts_code"]
+    #         assert len(stock_ts_code) == 1
+    #         stock_ts_code = stock_ts_code.item()
+    #     daily_data = ts_api.daily(ts_code=stock_ts_code, start_date=date, end_date=date)
+    #     if len(daily_data.values) != 1:
+    #         return len(daily_data.values)
+    #     # weekly_data = ts_api.weekly(ts_code=stock_ts_code, start_date=date, end_date=date)
+    #     # data = {"daily_data": daily_data, "weekly_data": weekly_data}
+    #     pickle.dump(daily_data, open(stock_day_data_path, 'wb'))
+    # else:
+    #     daily_data = pickle.load(open(stock_day_data_path, 'rb'))
+
+    if stock_ts_code is None:
+        stock_ts_code = stock_basic.loc[
+            (stock_basic["name"] == stock_name), "ts_code"
+        ]
+        assert len(stock_ts_code) == 1
+        stock_ts_code = stock_ts_code.item()
+
+    daily_data = all_stock_table.loc[
+        (all_stock_table["ts_code"] == stock_ts_code) &
+        (all_stock_table["trade_date"] == date)
+        ]
 
     return daily_data
 
 
-def get_industry_day(industry_basic: pd.DataFrame, date, industry_name, industry_ts_code=None, rewrite=False):
+def get_industry_day(industry_basic: pd.DataFrame, date, industry_name,
+                     all_industry_table=None, industry_ts_code=None, rewrite=False):
     all_industry_dir = "./stock_data/industries/"
     if not os.path.exists(all_industry_dir):
         os.mkdir(all_industry_dir)
 
-    industry_dir = os.path.join(all_industry_dir, industry_name)
-    if not os.path.exists(industry_dir):
-        os.mkdir(industry_dir)
+    all_industry_table_path = "./stock_data/all_industry_tabel.pd"
+    if rewrite or not os.path.exists(all_industry_table_path):
+        all_industry_table = ts_api.ths_daily()
+        pickle.dump(all_industry_table, open(all_industry_table_path, 'wb'))
+    else:
+        if all_industry_table is None:
+            all_industry_table = pickle.load(open(all_industry_table_path, "rb"))
+
+    # industry_dir = os.path.join(all_industry_dir, industry_name)
+    # if not os.path.exists(industry_dir):
+    #     os.mkdir(industry_dir)
 
     # ts_code	str	N	指数代码
     # trade_date	str	N	交易日期（YYYYMMDD格式，下同）
@@ -151,18 +187,36 @@ def get_industry_day(industry_basic: pd.DataFrame, date, industry_name, industry
     # total_mv	float	N	总市值
     # float_mv	float	N	流通市值
 
-    industry_day_data_path = os.path.join(industry_dir, f"{date}.dict")
-    if rewrite or not os.path.exists(industry_day_data_path):
-        if industry_ts_code is None:
-            industry_ts_code = industry_basic.loc[industry_basic["name"] == industry_name, "ts_code"]
-            assert len(industry_ts_code) == 1
-            industry_ts_code = industry_ts_code.item()
-        daily_data = ts_api.ths_daily(ts_code=industry_ts_code, start_date=date, end_date=date)
-        if len(daily_data.values) != 1:
-            return len(daily_data.values)
-        pickle.dump(daily_data, open(industry_day_data_path, 'wb'))
-    else:
-        daily_data = pickle.load(open(industry_day_data_path, 'rb'))
+    # industry_day_data_path = os.path.join(industry_dir, f"{date}.dict")
+    # if rewrite or not os.path.exists(industry_day_data_path):
+    #     if industry_ts_code is None:
+    #         industry_ts_code = industry_basic.loc[
+    #             (industry_basic["name"] == industry_name) & (industry_basic["exchange"] == "A"),
+    #             "ts_code"
+    #         ]
+    #         assert len(industry_ts_code) == 1
+    #         industry_ts_code = industry_ts_code.item()
+    #
+    #     daily_data = ts_api.ths_daily(ts_code=industry_ts_code, start_date=date, end_date=date)
+    #
+    #     if len(daily_data.values) != 1:
+    #         return len(daily_data.values)
+    #     pickle.dump(daily_data, open(industry_day_data_path, 'wb'))
+    # else:
+    #     daily_data = pickle.load(open(industry_day_data_path, 'rb'))
+
+    if industry_ts_code is None:
+        industry_ts_code = industry_basic.loc[
+            (industry_basic["name"] == industry_name) & (industry_basic["exchange"] == "A"),
+            "ts_code"
+        ]
+        assert len(industry_ts_code) == 1
+        industry_ts_code = industry_ts_code.item()
+
+    daily_data = all_industry_table.loc[
+        (all_industry_table["ts_code"] == industry_ts_code) &
+        (all_industry_table["trade_date"] == date)
+        ]
 
     return daily_data
 
@@ -268,5 +322,6 @@ if __name__ == '__main__':
     # get_industry_basic(rewrite=True)
     stock_basic = get_stock_basic()
     industry_basic = get_industry_basic()
-
+    get_stock_day(stock_basic, "20220511", "平安银行", all_stock_table=None)
+    get_industry_day(industry_basic, "20220511", "锂电池", all_industry_table=None, rewrite=True)
     # get_stock_day(stock_basic, "20220418", "平安银行", rewrite=True)

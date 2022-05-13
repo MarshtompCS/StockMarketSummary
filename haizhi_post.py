@@ -46,6 +46,7 @@ def get_follow_post(id2post: dict):
 def main():
     id2post = get_post()
     id2follow = get_follow_post(id2post)
+    print("")
 
     # 用户名一致的跟帖视为日记贴
 
